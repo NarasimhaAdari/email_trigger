@@ -1,10 +1,11 @@
 name: email trigger
 
 on:
-  workflow_dispatch:
   schedule:
     - cron: '0/5 * * * *'
       timezone: 'Asia/Kolkata'
+      
+  workflow_dispatch:
       
 permissions: write-all
 
