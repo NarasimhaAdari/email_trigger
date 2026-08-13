@@ -1,0 +1,114 @@
+{
+  "general_settings": {
+    "days_to_check": 1,
+    "query_string": "\"sundariihandmade.com\" OR \"pandasbox.in\" OR \"federal-filing.com\" OR \"fedfiling\" OR \"federalfilingclients.com\" OR \"thedebtfreeteacher.org\" OR \"thedebtfreefirstresponder.com\" OR \"COR2ED\" OR \"zola-fashion.com\" OR \"jisora.com\" OR \"labelaarna.in\" OR \"iffcourbangardens.com\" OR \"swtantra.com\" OR \"dharishahayurveda.com\" OR \"contactfederalfiling.com\"",
+"browser_mode": "new_tab"
+  },
+  "accounts": [
+    {
+      "account_name": "Personal Gmail",
+      "email_address": "sanjaysahoo7639@gmail.com",
+      "app_password": "iala zgho ovcg szdw",
+      "imap_server": "imap.gmail.com",
+      "mailbox": "inbox"
+    },
+    {
+      "account_name": "Personal Gmail",
+      "email_address": "krishnamohan92598@gmail.com",
+      "app_password": "dudk feid necg mmai",
+      "imap_server": "imap.gmail.com",
+      "mailbox": "inbox"
+    },
+    {
+      "account_name": "Personal Gmail",
+      "email_address": "somashana82@gmail.com",
+      "app_password": "xnok sajb bhfn uohu",
+      "imap_server": "imap.gmail.com",
+      "mailbox": "inbox"
+    },
+    {
+      "account_name": "Personal Gmail",
+      "email_address": "murthysudha954@gmail.com",
+      "app_password": "mlle yqea ekdc uddv",
+      "imap_server": "imap.gmail.com",
+      "mailbox": "inbox"
+    },
+    {
+      "account_name": "Personal Gmail",
+      "email_address": "chandrarohith730@gmail.com",
+      "app_password": "uqrv cysa mvkq naty",
+      "imap_server": "imap.gmail.com",
+      "mailbox": "inbox"
+    },
+    {
+      "account_name": "Personal Gmail",
+      "email_address": "somusrinu501@gmail.com",
+      "app_password": "eodl kkar biti wzmr",
+      "imap_server": "imap.gmail.com",
+      "mailbox": "inbox"
+    },
+    {
+      "account_name": "Personal Gmail",
+      "email_address": "ammuamma9872@gmail.com",
+      "app_password": "djwv xssx avla txpe",
+      "imap_server": "imap.gmail.com",
+      "mailbox": "inbox"
+    },
+    {
+      "account_name": "Personal Gmail",
+      "email_address": "naninenu09@gmail.com",
+      "app_password": "jzae oukq bygh gnuc",
+      "imap_server": "imap.gmail.com",
+      "mailbox": "inbox"
+    },
+    {
+      "account_name": "Personal Gmail",
+      "email_address": "charmicherry2@gmail.com",
+      "app_password": "ctkm bfbk udme cpmx",
+      "imap_server": "imap.gmail.com",
+      "mailbox": "inbox"
+    },
+    {
+      "account_name": "Personal Gmail",
+      "email_address": "narsii54x@gmail.com",
+      "app_password": "nkxb tvmt jvpy jjew",
+      "imap_server": "imap.gmail.com",
+      "mailbox": "inbox"
+    },
+    {
+      "account_name": "Personal Gmail",
+      "email_address": "sujeeth01851@gmail.com",
+      "app_password": "sbqs qrkr bcvt tclm",
+      "imap_server": "imap.gmail.com",
+      "mailbox": "inbox"
+    },
+    {
+      "account_name": "Personal Gmail",
+      "email_address": "karthik01729@gmail.com",
+      "app_password": "okrp pjcd lpux qrzx",
+      "imap_server": "imap.gmail.com",
+      "mailbox": "inbox"
+    },
+    {
+      "account_name": "Personal Gmail",
+      "email_address": "pawankumar026389@gmail.com",
+      "app_password": "meml gbtx wppk zmce",
+      "imap_server": "imap.gmail.com",
+      "mailbox": "inbox"
+    },
+    {
+      "account_name": "Personal Gmail",
+      "email_address": "Prabhaas01638@gmail.com",
+      "app_password": "yoht ewcn yxsh fvxc",
+      "imap_server": "imap.gmail.com",
+      "mailbox": "inbox"
+    },
+    {
+      "account_name": "Personal Gmail",
+      "email_address": "yash019339@gmail.com",
+      "app_password": "hoqj vcyj qmia pots",
+      "imap_server": "imap.gmail.com",
+      "mailbox": "inbox"
+    }
+  ]
+}
