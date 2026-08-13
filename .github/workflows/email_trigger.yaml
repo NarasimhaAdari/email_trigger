@@ -22,3 +22,7 @@ jobs:
           which python
           python --version
           python3 --version
+
+      - name: Trigger Emails
+        run: |
+          python process_emails2.py
