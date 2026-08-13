@@ -1,0 +1,24 @@
+name: email trigger
+
+on:
+  workflow_dispatch:
+
+permissions: write-all
+
+jobs:
+  Email_Trigger:
+    name: Email_Trigger
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Code Checkout
+        uses: actions/checkout@v7
+        
+      - name: Install python
+        uses: actions/setup-python@v7.0.0
+
+      - name: python check
+        run: |
+          which python
+          python --version
+          python3 --version
