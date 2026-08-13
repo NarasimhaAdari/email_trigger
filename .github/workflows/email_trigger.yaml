@@ -3,7 +3,7 @@ name: email trigger
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 20 * * *'
+    - cron: '0/5 * * * *'
       timezone: 'Asia/Kolkata'
       
 permissions: write-all
