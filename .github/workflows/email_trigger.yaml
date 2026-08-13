@@ -2,8 +2,6 @@ name: email trigger
 
 on:
   schedule:
-    - cron: '0/5 * * * *'
-      timezone: 'Asia/Kolkata'
     - cron: '13 21 * * *'
       timezone: "Asia/Kolkata"
       
