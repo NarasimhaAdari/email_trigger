@@ -2,7 +2,7 @@ name: email trigger
 
 on:
   schedule:
-    - cron: '13 21 * * *'
+    - cron: '02 11 * * *'
       timezone: "Asia/Kolkata"
       
   workflow_dispatch:
