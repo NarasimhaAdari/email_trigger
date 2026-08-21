@@ -39,7 +39,7 @@ URL_INCLUSION_KEYWORDS = [
     "barrettfinancial", "marketingnewsdesk", "charleskeith", "usnews","executivebreakdownnews","bonfino","edition",
     "industryslice", "usemailora", "pymnts", "communications.pymnts", "economy","govloanoptions","firstcry",
     "labor-economy", "spending", "martech", "usnews", "latimes", "marketscreener","inshot","outlookbusiness",
-    "summit", "russell", "ferrari", "letstalk", "bummer", "indianexpress","imbaglobal","updates.quicklly",
+    "summit", "russell", "ferrari", "letstalk", "bummer", "indianexpress","imbaglobal","updates.quicklly","vaprassociates",
     "financesolutions", "linkedin", "sendibm", "tokyopens", "yplayz", "ryze","meet5","loandepot","rytbank","mail",
     "houseofekam", "nature4nature", "legalpracticepulse", "indiatimes","charleskeith","offers","servicelive",
     "outlookindia", "openai", "googleplay", "sendclean", "charleskeith", "intoday","allidhealth","getmychoices",
