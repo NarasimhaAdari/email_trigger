@@ -1,6 +1,6 @@
 {
   "general_settings": {
-    "days_to_check": 1,
+    "days_to_check": 3,
     "query_string": "\"sundariihandmade.com\" OR \"pandasbox.in\" OR \"federal-filing.com\" OR \"fedfiling\" OR \"federalfilingclients.com\" OR \"thedebtfreeteacher.org\" OR \"thedebtfreefirstresponder.com\" OR \"COR2ED\" OR \"zola-fashion.com\" OR \"jisora.com\" OR \"labelaarna.in\" OR \"iffcourbangardens.com\" OR \"swtantra.com\" OR \"dharishahayurveda.com\" OR \"contactfederalfiling.com\"",
 "browser_mode": "new_tab"
   },
@@ -890,7 +890,7 @@
     {
       "account_name": "Personal Gmail",
       "email_address": "shardul028m1@gmail.com",
-      "app_password": "cxuu iivi uqie gauu",
+      "app_password": "cxuu iivi uqie gauu",
       "imap_server": "imap.gmail.com",
       "mailbox": "inbox"
     },
