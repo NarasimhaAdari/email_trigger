@@ -12,14 +12,14 @@ permissions:
 jobs:
   Email_Trigger:
     name: Email_Trigger
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Code Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -34,10 +34,11 @@ jobs:
           python --version
           python3 --version
 
-      - name: Check Files
+      - name: Check Required Files
         run: |
-          pwd
           ls -la
+          test -f process_emails2.py
+          test -f Config4.json
 
       - name: Trigger Emails
         run: |
