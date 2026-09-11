@@ -6,39 +6,25 @@ on:
       timezone: "Asia/Kolkata"
   workflow_dispatch:
 
-permissions:
-  contents: read
+permissions: write-all
 
 jobs:
   Email_Trigger:
     name: Email_Trigger
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Code Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Install Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.11"
-
-      - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install requests beautifulsoup4
+        uses: actions/setup-python@v7.0.0
 
       - name: Python Check
         run: |
           which python
           python --version
           python3 --version
-
-      - name: Check Required Files
-        run: |
-          ls -la
-          test -f process_emails2.py
-          test -f Config4.json
 
       - name: Trigger Emails
         run: |
