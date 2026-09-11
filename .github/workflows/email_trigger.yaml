@@ -1,14 +1,13 @@
-name: email trigger
+workflow code 
 
+name: email trigger
 on:
   schedule:
     - cron: '07 00 * * *'
       timezone: "Asia/Kolkata"
-
-  workflow_dispatch:
-
-permissions:
-  contents: read
+    workflow_dispatch:
+    
+permissions: write-all
 
 jobs:
   Email_Trigger:
@@ -17,20 +16,12 @@ jobs:
 
     steps:
       - name: Code Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
-      - name: Install Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: "pip"
+      - name: Install python
+        uses: actions/setup-python@v7.0.0
 
-      - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
-
-      - name: Python Check
+      - name: python check
         run: |
           which python
           python --version
