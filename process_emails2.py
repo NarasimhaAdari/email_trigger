@@ -4,7 +4,7 @@ EMAIL AUTOMATION SCRIPT - PRODUCTION SECURITY V5.0
 
 🔒 Security Architecture:
   ✓ Defense-in-depth validation (7 layers)
-  ✓ Exact hostname allowlist (no substring matching)
+  ✓ Unsubscribe/opt-out URL blocking
   ✓ SSL/TLS certificate verification
   ✓ Manual redirect inspection (never auto-follow)
   ✓ Audit trail & compliance logging
@@ -68,7 +68,7 @@ except ImportError:
 # ============================================================
 
 REQUEST_TIMEOUT = 10
-MAX_URLS_PER_EMAIL = 2
+MAX_URLS_PER_EMAIL = 1
 MAX_REDIRECTS = 5
 DELAY_BETWEEN_REQUESTS = 1.0
 DELAY_BETWEEN_EMAILS = 0.5
@@ -507,52 +507,51 @@ def extract_and_filter_urls(
     config: dict
 ) -> Tuple[List[str], bool]:
     """
-    Extract and validate URLs.
+    Extract links from an email and select EXACTLY ONE safe link.
 
-    Returns: (safe_urls, has_match)
+    Rule:
+      • Check links in email order.
+      • Block unsubscribe/opt-out links.
+      • The first valid HTTP(S) link that is NOT an unsubscribe/opt-out
+        link is selected.
+      • Stop looking after that first safe link.
+      • If no safe link exists, return no URLs.
+
+    Returns: (one_safe_url_or_empty_list, has_match)
     """
-    urls_to_open: Set[str] = set()
-    blocked_urls: Set[str] = set()  # Memory bank
-    found_any_match = False
-    url_count = 0
+    blocked_urls: Set[str] = set()
 
     has_rfc_unsubscribe = check_email_headers_for_unsubscribe(full_msg)
     url_filters = config.get("url_filters", {})
-    allowed_hosts = build_allowed_hosts(config)
 
-    email_from = full_msg.get('From', 'Unknown')[:100]
-    email_subject = full_msg.get('Subject', 'No Subject')[:100]
-
-    if not allowed_hosts:
-        logger.warning("No allowed_hosts configured. Blocking all URLs.")
-        return [], False
+    email_from = full_msg.get("From", "Unknown")[:100]
+    email_subject = full_msg.get("Subject", "No Subject")[:100]
 
     try:
-        soup = BeautifulSoup(message_body, 'html.parser')
+        soup = BeautifulSoup(message_body, "html.parser")
     except Exception as e:
         logger.warning(f"Failed to parse HTML: {e}")
         soup = None
 
     # ========================================================
-    # PASS 1: HTML ANCHOR TAGS
+    # PASS 1: HTML LINKS — preserve email/link order
     # ========================================================
 
     if soup:
-        for a_tag in soup.find_all('a', href=True):
-            if url_count >= MAX_URLS_PER_EMAIL:
-                break
-
-            raw_url = a_tag['href'].strip()
+        for a_tag in soup.find_all("a", href=True):
+            raw_url = a_tag["href"].strip()
             normalized_url = normalize_url(raw_url)
 
             if not normalized_url:
                 continue
 
-            url = normalized_url
-
-            # Collect text
+            # Collect visible text, title and image alt text so an
+            # unsubscribe link cannot hide behind an image/button.
             texts = []
-            visible_text = a_tag.get_text(separator=" ", strip=True)
+
+            visible_text = a_tag.get_text(
+                separator=" ", strip=True
+            )
             if visible_text:
                 texts.append(visible_text)
 
@@ -567,105 +566,121 @@ def extract_and_filter_urls(
 
             comprehensive_text = " | ".join(texts)
 
-            # Check if unsubscribe
+            # ------------------------------------------------
+            # NEVER VISIT UNSUBSCRIBE / OPT-OUT LINKS
+            # ------------------------------------------------
             if is_unsubscribe_link(
-                url, comprehensive_text, url_filters, has_rfc_unsubscribe
+                normalized_url,
+                comprehensive_text,
+                url_filters,
+                has_rfc_unsubscribe
             ):
-                blocked_urls.add(url)
+                blocked_urls.add(normalized_url)
+
                 audit_logger.log(AuditEvent(
                     timestamp=datetime.datetime.now().isoformat(),
                     event_type="url_blocked",
                     email_from=email_from,
                     email_subject=email_subject,
-                    url=url,
-                    hostname=get_hostname(url) or "unknown",
+                    url=normalized_url,
+                    hostname=get_hostname(normalized_url) or "unknown",
                     status="blocked",
-                    reason="Unsubscribe pattern matched"
-                ))
-                logger.debug(f"BLOCKED (HTML): {url}")
-                continue
-
-            # Check hostname
-            if not is_allowed_hostname(url, allowed_hosts):
-                logger.debug(f"BLOCKED (non-allowed host): {url}")
-                continue
-
-            # Add to safe list
-            found_any_match = True
-            if url not in urls_to_open:
-                urls_to_open.add(url)
-                url_count += 1
-                audit_logger.log(AuditEvent(
-                    timestamp=datetime.datetime.now().isoformat(),
-                    event_type="url_extracted",
-                    email_from=email_from,
-                    email_subject=email_subject,
-                    url=url,
-                    hostname=get_hostname(url) or "unknown",
-                    status="pending",
-                    reason="HTML anchor tag"
+                    reason="Unsubscribe/opt-out link"
                 ))
 
+                logger.info(
+                    f"BLOCKED unsubscribe/opt-out link: {normalized_url}"
+                )
+                continue
+
+            # ------------------------------------------------
+            # FIRST SAFE LINK FOUND
+            # ------------------------------------------------
+            audit_logger.log(AuditEvent(
+                timestamp=datetime.datetime.now().isoformat(),
+                event_type="url_extracted",
+                email_from=email_from,
+                email_subject=email_subject,
+                url=normalized_url,
+                hostname=get_hostname(normalized_url) or "unknown",
+                status="pending",
+                reason="First valid non-unsubscribe HTML link"
+            ))
+
+            logger.info(
+                f"✓ Selected first safe link: {normalized_url}"
+            )
+
+            return [normalized_url], True
+
     # ========================================================
-    # PASS 2: PLAIN TEXT URLs
+    # PASS 2: PLAIN-TEXT LINKS
     # ========================================================
 
-    if url_count < MAX_URLS_PER_EMAIL:
-        plain_url_pattern = re.compile(
-            r"https?://[^\s<>\"']+",
-            re.IGNORECASE
+    plain_url_pattern = re.compile(
+        r"https?://[^\s<>\"']+",
+        re.IGNORECASE
+    )
+
+    for match in plain_url_pattern.finditer(message_body):
+        raw_url = match.group(0).strip().rstrip("'\">.")
+        normalized_url = normalize_url(raw_url)
+
+        if not normalized_url:
+            continue
+
+        if normalized_url in blocked_urls:
+            continue
+
+        # ------------------------------------------------
+        # NEVER VISIT UNSUBSCRIBE / OPT-OUT LINKS
+        # ------------------------------------------------
+        if is_unsubscribe_link(
+            normalized_url,
+            "",
+            url_filters,
+            has_rfc_unsubscribe
+        ):
+            blocked_urls.add(normalized_url)
+
+            audit_logger.log(AuditEvent(
+                timestamp=datetime.datetime.now().isoformat(),
+                event_type="url_blocked",
+                email_from=email_from,
+                email_subject=email_subject,
+                url=normalized_url,
+                hostname=get_hostname(normalized_url) or "unknown",
+                status="blocked",
+                reason="Unsubscribe/opt-out plain-text link"
+            ))
+
+            logger.info(
+                f"BLOCKED unsubscribe/opt-out link: {normalized_url}"
+            )
+            continue
+
+        # ------------------------------------------------
+        # FIRST SAFE LINK FOUND
+        # ------------------------------------------------
+        audit_logger.log(AuditEvent(
+            timestamp=datetime.datetime.now().isoformat(),
+            event_type="url_extracted",
+            email_from=email_from,
+            email_subject=email_subject,
+            url=normalized_url,
+            hostname=get_hostname(normalized_url) or "unknown",
+            status="pending",
+            reason="First valid non-unsubscribe plain-text link"
+        ))
+
+        logger.info(
+            f"✓ Selected first safe link: {normalized_url}"
         )
 
-        for match in plain_url_pattern.finditer(message_body):
-            if url_count >= MAX_URLS_PER_EMAIL:
-                break
+        return [normalized_url], True
 
-            raw_url = match.group(0).strip().rstrip("'\">.")
-            normalized_url = normalize_url(raw_url)
-
-            if not normalized_url:
-                continue
-
-            url = normalized_url
-
-            if url in blocked_urls or url in urls_to_open:
-                continue
-
-            if is_unsubscribe_link(
-                url, "", url_filters, has_rfc_unsubscribe
-            ):
-                blocked_urls.add(url)
-                audit_logger.log(AuditEvent(
-                    timestamp=datetime.datetime.now().isoformat(),
-                    event_type="url_blocked",
-                    email_from=email_from,
-                    email_subject=email_subject,
-                    url=url,
-                    hostname=get_hostname(url) or "unknown",
-                    status="blocked",
-                    reason="Unsubscribe pattern in plain text"
-                ))
-                continue
-
-            if not is_allowed_hostname(url, allowed_hosts):
-                continue
-
-            found_any_match = True
-            if url not in urls_to_open:
-                urls_to_open.add(url)
-                url_count += 1
-                audit_logger.log(AuditEvent(
-                    timestamp=datetime.datetime.now().isoformat(),
-                    event_type="url_extracted",
-                    email_from=email_from,
-                    email_subject=email_subject,
-                    url=url,
-                    hostname=get_hostname(url) or "unknown",
-                    status="pending",
-                    reason="Plain text URL"
-                ))
-
-    return sorted(list(urls_to_open)), found_any_match
+    logger.info("No safe non-unsubscribe link found in this email")
+    return [], False
 
 
 # ============================================================
@@ -774,11 +789,10 @@ def safely_visit_url(
 
     Security checks:
       1. URL normalization
-      2. Unsubscribe detection
-      3. Exact hostname validation
-      4. Manual redirect validation (5 max)
-      5. SSL/TLS verification
-      6. Response validation
+      2. Unsubscribe/opt-out detection
+      3. Manual redirect validation (5 max)
+      4. SSL/TLS verification
+      5. Response validation
     """
     current_url = normalize_url(url)
 
@@ -825,21 +839,9 @@ def safely_visit_url(
             ))
             return False
 
-        # LAYER 3: Hostname check
-        if not is_allowed_hostname(current_url, allowed_hosts):
-            logger.warning(f"FIREWALL: Non-allowed hostname: {current_url}")
-            audit_logger.log(AuditEvent(
-                timestamp=datetime.datetime.now().isoformat(),
-                event_type="url_blocked",
-                email_from=email_from,
-                email_subject=email_subject,
-                url=url,
-                hostname=get_hostname(current_url) or "unknown",
-                status="blocked",
-                reason="Non-allowed hostname in redirect",
-                redirect_chain=",".join(redirect_chain)
-            ))
-            return False
+        # LAYER 3: Network request
+        # Hostname allowlisting is intentionally not used: the required policy is
+        # to visit any valid HTTP(S) URL from the email except unsubscribe/opt-out URLs.
 
         # ====================================================
         # LAYER 4: Network request
@@ -938,21 +940,6 @@ def safely_visit_url(
                     hostname=get_hostname(next_url) or "unknown",
                     status="blocked",
                     reason="Unsubscribe in redirect destination",
-                    redirect_chain=",".join(redirect_chain)
-                ))
-                return False
-
-            if not is_allowed_hostname(next_url, allowed_hosts):
-                logger.warning(f"BLOCKED REDIRECT: Non-allowed host: {next_url}")
-                audit_logger.log(AuditEvent(
-                    timestamp=datetime.datetime.now().isoformat(),
-                    event_type="url_blocked",
-                    email_from=email_from,
-                    email_subject=email_subject,
-                    url=url,
-                    hostname=get_hostname(next_url) or "unknown",
-                    status="blocked",
-                    reason="Non-allowed hostname in redirect",
                     redirect_chain=",".join(redirect_chain)
                 ))
                 return False
@@ -1140,13 +1127,8 @@ def automate_email_tasks(
                             )
                             continue
 
-                        if not is_allowed_hostname(
-                            normalized_url, allowed_hosts
-                        ):
-                            logger.warning(
-                                f"FINAL BLOCK: Non-allowed host: {normalized_url}"
-                            )
-                            continue
+                        # Do not apply the configured hostname allowlist here.
+                        # The policy is: visit any valid non-unsubscribe HTTP(S) URL.
 
                         # Safe visit
                         safely_visit_url(
@@ -1216,12 +1198,9 @@ def health_check(config: dict) -> bool:
 
     allowed_hosts = build_allowed_hosts(config)
     if not allowed_hosts:
-        logger.error("  ✗ No allowed_hosts configured")
-        return False
-
-    logger.info(f"  ✓ Allowed hosts ({len(allowed_hosts)}):")
-    for host in sorted(allowed_hosts):
-        logger.info(f"    - {host}")
+        logger.warning("  ⚠ No allowed_hosts configured; hostname allowlisting is disabled by policy")
+    else:
+        logger.info(f"  ✓ Configured hosts retained ({len(allowed_hosts)}; not used as a URL gate)")
 
     logger.info("  ✓ All checks passed")
     return True
