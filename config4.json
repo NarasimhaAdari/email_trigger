@@ -2,7 +2,7 @@
   "general_settings": {
     "days_to_check": 3,
     "query_string": "\"sundariihandmade.com\" OR \"pandasbox.in\" OR \"federal-filing.com\" OR \"fedfiling\" OR \"federalfilingclients.com\" OR \"thedebtfreeteacher.org\" OR \"thedebtfreefirstresponder.com\" OR \"COR2ED\" OR \"zola-fashion.com\" OR \"jisora.com\" OR \"labelaarna.in\" OR \"iffcourbangardens.com\" OR \"swtantra.com\" OR \"dharishahayurveda.com\" OR \"contactfederalfiling.com\"",
-    "browser_mode": "new_tab"
+"browser_mode": "new_tab"
   },
   "accounts": [
     {
@@ -495,7 +495,7 @@
       "imap_server": "imap.gmail.com",
       "mailbox": "inbox"
     },
-    {
+        {
       "account_name": "Personal Gmail",
       "email_address": "jellybellyziggly@gmail.com",
       "app_password": "jbhn drzo ptwn cghs",
@@ -600,7 +600,7 @@
       "imap_server": "imap.gmail.com",
       "mailbox": "inbox"
     },
-    {
+       {
       "account_name": "Personal Gmail",
       "email_address": "janicelowe1990@gmail.com",
       "app_password": "piix sowd xcnq tine",
@@ -775,7 +775,7 @@
       "imap_server": "imap.gmail.com",
       "mailbox": "inbox"
     },
-    {
+        {
       "account_name": "Personal Gmail",
       "email_address": "santamoni10e7@gmail.com",
       "app_password": "maqg ambf cozo qycl",
@@ -915,52 +915,7 @@
       "imap_server": "imap.gmail.com",
       "mailbox": "inbox"
     }
-  ],
-  "allowed_hosts": [
-    "sundariihandmade.com",
-    "pandasbox.in",
-    "federal-filing.com",
-    "federalfilingclients.com",
-    "thedebtfreeteacher.org",
-    "thedebtfreefirstresponder.com",
-    "zola-fashion.com",
-    "jisora.com",
-    "labelaarna.in",
-    "iffcourbangardens.com",
-    "swtantra.com",
-    "dharishahayurveda.com",
-    "contactfederalfiling.com"
-  ],
-  "url_filters": {
-    "unsubscribe_exclude_keywords": [
-      "unsubscribe",
-      "un-subscribe",
-      "optout",
-      "opt-out",
-      "opt out",
-      "remove",
-      "preferences",
-      "manage-preferences",
-      "manage_preferences",
-      "email-preferences",
-      "email_preferences",
-      "fedfiling",
-      "COR2ED"
-    ],
-    "unsubscribe_exclude_domains": [
-      "unsubscribe",
-      "optout",
-      "opt-out",
-      "preferences"
-    ],
-    "unsubscribe_exclude_paths": [
-      "/unsubscribe",
-      "/un-subscribe",
-      "/optout",
-      "/opt-out",
-      "/preferences",
-      "/manage-preferences",
-      "/email-preferences"
-    ]
-  }
+  ]
 }
+
+
