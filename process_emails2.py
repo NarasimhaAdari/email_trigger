@@ -239,7 +239,7 @@ def automate_email_tasks(account_config, general_config):
 
 if __name__ == "__main__":
     try:
-        with open('config.json', 'r') as f:
+        with open('config4.json', 'r') as f:
             config = json.load(f)
 
         general_settings = config['general_settings']
@@ -247,10 +247,10 @@ if __name__ == "__main__":
             automate_email_tasks(account, general_settings)
 
     except FileNotFoundError:
-        print("ERROR: config.json not found. Please create the file with your account details.")
+        print("ERROR: config4.json not found. Please create the file with your account details.")
     except KeyError as e:
-        print(f"ERROR: Missing required key in config.json: {e}. Check that all required settings are present.")
+        print(f"ERROR: Missing required key in config4.json: {e}. Check that all required settings are present.")
     except json.JSONDecodeError as e:
-        print(f"ERROR: Invalid JSON syntax in config.json: {e}. Use an online JSON validator to check your file.")
+        print(f"ERROR: Invalid JSON syntax in config4.json: {e}. Use an online JSON validator to check your file.")
     except Exception as e:
         print(f"A general script error occurred: {e}")
