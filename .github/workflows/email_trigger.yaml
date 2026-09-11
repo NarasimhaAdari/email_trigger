@@ -1,6 +1,5 @@
-workflow code 
-
 name: email trigger
+
 on:
   schedule:
     - cron: '07 00 * * *'
