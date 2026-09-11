@@ -1,44 +1,3 @@
-#!/usr/bin/env python3
-"""
-EMAIL AUTOMATION SCRIPT - PRODUCTION SECURITY V5.0
-
-🔒 Security Architecture:
-  ✓ Defense-in-depth validation (7 layers)
-  ✓ Unsubscribe/opt-out URL blocking
-  ✓ SSL/TLS certificate verification
-  ✓ Manual redirect inspection (never auto-follow)
-  ✓ Audit trail & compliance logging
-  ✓ Rate limiting & resource protection
-  ✓ Fail-closed security model
-  ✓ OAuth2 support (future-ready)
-
-📋 Features:
-  • Moves unseen spam to inbox
-  • Extracts & validates URLs via BeautifulSoup4
-  • Blocks unsubscribe/opt-out links (RFC 2369, RFC 8058)
-  • Validates link text, titles, alt-text, URLs
-  • Per-email security memory bank
-  • Safe redirect chain inspection
-  • Persistent audit logging (CSV)
-  • Comprehensive error handling
-  • Health checks & monitoring
-  • Configuration validation
-
-⚡ Performance:
-  • Connection pooling with requests.Session
-  • Configurable rate limiting
-  • Email size limits
-  • Timeout protection
-  • Efficient URL extraction
-
-🎯 Compliance:
-  • Email body size limits
-  • Request timeouts
-  • Max redirect limits
-  • Detailed audit trail
-  • Error recovery
-"""
-
 import imaplib
 import email
 import re
@@ -46,1231 +5,252 @@ import datetime
 import requests
 import json
 import time
-import os
-import logging
-import csv
-import hashlib
-from typing import List, Tuple, Set, Optional, Dict
-from urllib.parse import urlparse, urljoin
-from pathlib import Path
-from dataclasses import dataclass, asdict
-from contextlib import contextmanager
 
-try:
-    from bs4 import BeautifulSoup
-except ImportError:
-    print("ERROR: BeautifulSoup4 required. Run: pip install beautifulsoup4")
-    raise SystemExit(1)
-
-
-# ============================================================
-# CONFIGURATION & CONSTANTS
-# ============================================================
-
-REQUEST_TIMEOUT = 10
-MAX_URLS_PER_EMAIL = 2
-MAX_REDIRECTS = 5
-DELAY_BETWEEN_REQUESTS = 1.0
-DELAY_BETWEEN_EMAILS = 0.5
-MAX_EMAIL_BODY_SIZE = 10_000_000  # 10MB
-SSL_VERIFY = True
-USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/120.0.0.0 Safari/537.36"
+# URL Regex: Finds standard URLs (http/https) OR links inside href="..."
+URL_PATTERN = re.compile(
+    r'(https?://\S+)'
+    r'|'
+    r'<a\s+href=[\'"]?([^\'" >]+)',
+    re.IGNORECASE
 )
 
+# Unsubscribe Exclusion Pattern: Matches common unsubscribe/opt-out keywords in a URL
+UNSUBSCRIBE_PATTERN = re.compile(
+    r'unsubscribe|optout|remove|manage|mailing_list|no_email|preferences',
+    re.IGNORECASE
+)
+
+# List of common Spam folder names to check
 COMMON_SPAM_FOLDERS = [
-    "[Gmail]/Spam",
-    "Spam",
-    "Junk",
-    "[Gmail]/Junk"
+    "[Gmail]/Spam",  # Gmail
+    "Spam",          # General
 ]
 
+# --- URL Inclusion Keywords ---
+URL_INCLUSION_KEYWORDS = [
+    "service-federalfiling", "wisechoiceloans", "bestloansquick", "federalfilinginfo","izbuys","insurvo","maison7",
+    "moengage", "bogs", "powerrefinance", "labelaarna", "dharishahayurveda","infoloanoptions","lizbuys","anveshan",
+    "thefinanciallyfreeteacher", "sundariihandmade", "veterandebthelp","usemailora.com","govloanoptions","redbus",
+    "financiallyfreenurse", "thedebtfreefirstresponder", "debtfreefirstresponder","spoonacular","govratealerts",
+    "thedebtfreeteacher", "veterandebtassistance", "bigbustours", "infoquickenloans","mailora","mail","govloanoptions",   
+    "sendibm3", "getagovtloan", "expresshomes", "purpawse", "swtantra","usemailora","use","quick","insurvo","famyo",
+    "businesstodayplus", "felloauth", "zola", "iffcourbangardens", "principalnews","mailora","9ugks.r.sp1-brevo",
+    "federalfiling", "federal-filing", "thefederalfiling", "accountancybreakdowninfo","useme","govratealerts",
+    "barrettfinancial", "marketingnewsdesk", "charleskeith", "usnews","executivebreakdownnews","bonfino","edition",
+    "industryslice", "usemailora", "pymnts", "communications.pymnts", "economy","govloanoptions","firstcry",
+    "labor-economy", "spending", "martech", "usnews", "latimes", "marketscreener","inshot","outlookbusiness",
+    "summit", "russell", "ferrari", "letstalk", "bummer", "indianexpress","imbaglobal","updates.quicklly",
+    "financesolutions", "linkedin", "sendibm", "tokyopens", "yplayz", "ryze","meet5","loandepot","rytbank","mail",
+    "houseofekam", "nature4nature", "legalpracticepulse", "indiatimes","charleskeith","offers","servicelive",
+    "outlookindia", "openai", "googleplay", "sendclean", "charleskeith", "intoday","allidhealth","getmychoices",
+    "instagram", "letter", "okhai", "alltimeoffers", "anveshan", "infodaily","smebreakdown","vperfumes","mwgzwaycuddbhald",
+    "dispatch","sj-r","slice","menewsdigest","marketingnewsbrief","retailbreakdown","firstcry","dailyinfo",
+    "dappunk", "goodwins", "dictionary", "jisora", "theater", "govratealerts","redirect.usemailora.com",
+    "arushafoods", "primawellness", "boga", "uniondebtassistance", "cor2ed","otrack","elink.getdailyhomeinfo"
+]
+# Pre-process keywords for case-insensitive matching
+URL_INCLUSION_KEYWORDS_LOWER = [k.lower() for k in URL_INCLUSION_KEYWORDS]
 
-# ============================================================
-# LOGGING SETUP
-# ============================================================
+# ------------------- Helper Functions -------------------
 
-def setup_logging(log_file: str = "email_automation.log") -> logging.Logger:
-    """Configure enhanced logging with file and console output"""
-    logger = logging.getLogger("EmailAutomation")
-    logger.setLevel(logging.DEBUG)
-
-    # Clear existing handlers
-    logger.handlers.clear()
-
-    # File handler
-    file_handler = logging.FileHandler(log_file, encoding='utf-8')
-    file_handler.setLevel(logging.DEBUG)
-    file_formatter = logging.Formatter(
-        "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
-    )
-    file_handler.setFormatter(file_formatter)
-
-    # Console handler
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    console_formatter = logging.Formatter(
-        "%(asctime)s | %(levelname)s | %(message)s",
-        datefmt="%H:%M:%S"
-    )
-    console_handler.setFormatter(console_formatter)
-
-    logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
-
-    return logger
-
-
-logger = setup_logging()
-
-
-# ============================================================
-# AUDIT LOGGING
-# ============================================================
-
-@dataclass
-class AuditEvent:
-    """Audit trail entry"""
-    timestamp: str
-    event_type: str  # "url_extracted", "url_visited", "url_blocked", "error"
-    email_from: str
-    email_subject: str
-    url: str
-    hostname: str
-    status: str  # "pending", "success", "blocked", "error"
-    reason: str
-    http_status: Optional[int] = None
-    redirect_chain: Optional[str] = None
-
-
-class AuditLogger:
-    """Secure audit trail with CSV persistence"""
-
-    def __init__(self, audit_file: str = "audit_log.csv"):
-        self.audit_file = audit_file
-        self._initialize_file()
-
-    def _initialize_file(self):
-        """Create CSV with headers if it doesn't exist"""
-        if not Path(self.audit_file).exists():
-            with open(self.audit_file, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=[
-                    'timestamp', 'event_type', 'email_from', 'email_subject',
-                    'url', 'hostname', 'status', 'reason', 'http_status',
-                    'redirect_chain'
-                ])
-                writer.writeheader()
-
-    def log(self, event: AuditEvent):
-        """Log audit event"""
-        try:
-            with open(self.audit_file, 'a', newline='', encoding='utf-8') as f:
-                writer = csv.DictWriter(f, fieldnames=[
-                    'timestamp', 'event_type', 'email_from', 'email_subject',
-                    'url', 'hostname', 'status', 'reason', 'http_status',
-                    'redirect_chain'
-                ])
-                writer.writerow(asdict(event))
-        except Exception as e:
-            logger.error(f"Failed to log audit event: {e}")
-
-
-audit_logger = AuditLogger()
-
-
-# ============================================================
-# SECURITY PATTERNS
-# ============================================================
-
-UNSUBSCRIBE_URL_PATTERN = re.compile(
-    r"""
-    unsubscribe|unsub|opt[\s_-]?out|remove[\s_-]?me|remove[\s_-]?email|
-    manage[\s_-]?pref|manage[\s_-]?subscription|list[\s_-]?unsubscribe|
-    one[\s_-]?click|safeunsubscribe|email[\s_-]?preferences?|
-    email[\s_-]?settings?|subscription[\s_-]?preferences?|
-    subscription[\s_-]?settings?|mailing[\s_-]?preferences?|
-    preferences[\s_-]?center|subscription[\s_-]?center|
-    email[\s_-]?center
-    """,
-    re.IGNORECASE | re.VERBOSE
-)
-
-UNSUBSCRIBE_TEXT_PATTERN = re.compile(
-    r"""
-    unsubscribe|unsub|opt[\s_-]?out|remove[\s_-]?me|remove[\s_-]?from[\s_-]?list|
-    remove[\s_-]?email|stop[\s_-]?(emails?|mail|messages?)|stop[\s_-]?receiving|
-    manage[\s_-]?preferences?|manage[\s_-]?subscription|email[\s_-]?preferences?|
-    email[\s_-]?settings?|subscription[\s_-]?preferences?|
-    subscription[\s_-]?settings?|mailing[\s_-]?preferences?|
-    change[\s_-]?preferences?|no[\s_-]?longer[\s_-]?wish|
-    leave[\s_-]?this[\s_-]?list|cancel[\s_-]?subscription|update[\s_-]?profile|
-    safeunsubscribe|one[\s_-]?click|unsubscribe[\s_-]?here|unsubscribe[\s_-]?now|
-    list[\s_-]?unsubscribe|opt[\s_-]?out[\s_-]?now|preferences[\s_-]?center|
-    email[\s_-]?center|subscription[\s_-]?center|mailing[\s_-]?list[\s_-]?settings|
-    frequency[\s_-]?preferences?|delivery[\s_-]?preferences?|
-    communication[\s_-]?preferences?|alert[\s_-]?preferences?|
-    notification[\s_-]?preferences?|decline|uncheck|dont?[\s_-]?send|no[\s_-]?more
-    """,
-    re.IGNORECASE | re.VERBOSE
-)
-
-
-# ============================================================
-# CONFIGURATION MANAGEMENT
-# ============================================================
-
-class ConfigValidator:
-    """Validate configuration"""
-
-    @staticmethod
-    def validate(config: dict) -> Tuple[bool, List[str]]:
-        """Validate config and return (is_valid, errors)"""
-        errors = []
-
-        if not config.get("accounts"):
-            errors.append("No accounts configured")
-
-        for account in config.get("accounts", []):
-            if not account.get("email_address"):
-                errors.append("Account missing email_address")
-            if not account.get("imap_server"):
-                errors.append("Account missing imap_server")
-            if not account.get("mailbox"):
-                errors.append("Account missing mailbox")
-
-        if not config.get("allowed_hosts"):
-            errors.append("No allowed_hosts configured")
-
-        return len(errors) == 0, errors
-
-
-def load_config(config_path: str = "config4.json") -> dict:
-    """Load and validate configuration"""
-    try:
-        with open(config_path, "r", encoding="utf-8") as f:
-            config = json.load(f)
-    except FileNotFoundError:
-        logger.error(f"Config file not found: {config_path}")
-        raise
-    except json.JSONDecodeError as e:
-        logger.error(f"Invalid JSON in config: {e}")
-        raise
-
-    # Load app passwords from environment
-    for account in config.get("accounts", []):
-        email_address = account.get("email_address", "")
-        env_key = (
-            f"EMAIL_APP_PASSWORD_"
-            f"{email_address.replace('@', '_').replace('.', '_').upper()}"
-        )
-        if env_key in os.environ:
-            account["app_password"] = os.environ[env_key]
-        elif not account.get("app_password"):
-            logger.error(f"No app_password for {email_address}")
-
-    # Validate
-    is_valid, errors = ConfigValidator.validate(config)
-    if not is_valid:
-        for error in errors:
-            logger.error(f"Config error: {error}")
-        raise ValueError("Invalid configuration")
-
-    return config
-
-
-# ============================================================
-# URL NORMALIZATION & VALIDATION
-# ============================================================
-
-def normalize_url(url: str) -> Optional[str]:
+def extract_and_filter_urls(message_body):
     """
-    Normalize and validate URL.
-
-    Rejects:
-      • Control characters
-      • Non-HTTP(S) schemes
-      • Credentials (user:pass)
-      • Malformed URLs
-      • Missing hostname
+    Extracts unique URLs, filters them by exclusion/inclusion lists, 
+    and returns a tuple: (list_of_urls_to_open, boolean_if_any_url_matched)
     """
-    if not url:
-        return None
-
-    url = url.strip()
-
-    # Reject control characters
-    if any(ord(c) < 32 for c in url):
-        return None
-
-    try:
-        parsed = urlparse(url)
-
-        # Only HTTP(S)
-        if parsed.scheme.lower() not in ("http", "https"):
-            return None
-
-        # No credentials
-        if parsed.username is not None or parsed.password is not None:
-            return None
-
-        # Must have hostname
-        if not parsed.hostname:
-            return None
-
-        hostname = parsed.hostname.lower().rstrip(".")
-        if not hostname:
-            return None
-
-        # Rebuild without fragment
-        clean_url = parsed._replace(fragment="").geturl()
-        return clean_url
-
-    except Exception as e:
-        logger.debug(f"URL normalization error: {e}")
-        return None
-
-
-def get_hostname(url: str) -> Optional[str]:
-    """Extract and validate hostname from URL"""
-    try:
-        parsed = urlparse(url)
-
-        if parsed.scheme.lower() not in ("http", "https"):
-            return None
-
-        if not parsed.hostname:
-            return None
-
-        if parsed.username is not None or parsed.password is not None:
-            return None
-
-        return parsed.hostname.lower().rstrip(".")
-
-    except Exception:
-        return None
-
-
-# ============================================================
-# HOSTNAME ALLOWLIST
-# ============================================================
-
-def normalize_allowed_host(host: str) -> Optional[str]:
-    """Normalize allowed hostname from config"""
-    if not host:
-        return None
-
-    host = host.strip().lower()
-
-    # Handle full URLs
-    if "://" in host:
-        parsed = urlparse(host)
-        if not parsed.hostname:
-            return None
-        host = parsed.hostname.lower()
-
-    # Remove port
-    if ":" in host and not host.startswith("["):
-        host = host.split(":", 1)[0]
-
-    host = host.rstrip(".")
-
-    # Validate
-    if not host or "/" in host:
-        return None
-
-    return host
-
-
-def build_allowed_hosts(config: dict) -> Set[str]:
-    """Build exact hostname allowlist"""
-    allowed_hosts = set()
-
-    for host in config.get("allowed_hosts", []):
-        normalized = normalize_allowed_host(host)
-        if normalized:
-            allowed_hosts.add(normalized)
-
-    return allowed_hosts
-
-
-def is_allowed_hostname(url: str, allowed_hosts: Set[str]) -> bool:
-    """EXACT hostname match (no substring matching)"""
-    hostname = get_hostname(url)
-
-    if not hostname:
-        return False
-
-    return hostname in allowed_hosts
-
-
-# ============================================================
-# RFC HEADERS
-# ============================================================
-
-def extract_urls_from_rfc2369_header(header_value: str) -> Set[str]:
-    """Extract HTTP(S) URLs from RFC 2369 List-Unsubscribe"""
-    urls = set()
-
-    if not header_value:
-        return urls
-
-    matches = re.findall(r"<([^>]+)>", header_value)
+    urls_to_open = set()
+    found_any_match = False 
+    matches = URL_PATTERN.findall(message_body)
+    url_count = 0
 
     for match in matches:
-        match = match.strip()
-        if match.lower().startswith(("http://", "https://")):
-            urls.add(match)
+        if url_count >= 2:
+            break
 
-    return urls
+        url = match[0] if match[0] else match[1]
+        url = url.rstrip('\'">.')
 
+        if url.startswith('http'):
+            url_lower = url.lower()
 
-def check_email_headers_for_unsubscribe(full_msg) -> bool:
-    """Check RFC 2369 & RFC 8058 unsubscribe headers"""
-    list_unsubscribe = full_msg.get("List-Unsubscribe", "")
-    list_unsubscribe_post = full_msg.get("List-Unsubscribe-Post", "")
-
-    if list_unsubscribe:
-        urls_found = extract_urls_from_rfc2369_header(list_unsubscribe)
-        if urls_found:
-            logger.debug("RFC 2369 List-Unsubscribe header detected")
-            return True
-
-    if list_unsubscribe_post:
-        header_lower = list_unsubscribe_post.lower()
-        if "one-click" in header_lower or "one_click" in header_lower:
-            logger.debug("RFC 8058 one-click unsubscribe detected")
-            return True
-
-    return False
-
-
-# ============================================================
-# UNSUBSCRIBE DETECTION
-# ============================================================
-
-def is_unsubscribe_link(
-    url: str,
-    link_text: str,
-    filters: dict,
-    has_rfc_headers: bool = False
-) -> bool:
-    """
-    Detect if URL is unsubscribe/opt-out link.
-
-    Returns True = BLOCK this URL
-    """
-    url_lower = url.lower()
-    text_lower = link_text.lower()
-
-    # Dynamic filters
-    for keyword in filters.get("unsubscribe_exclude_keywords", []):
-        if keyword and keyword.lower() in url_lower:
-            return True
-
-    for domain in filters.get("unsubscribe_exclude_domains", []):
-        if domain and domain.lower() in url_lower:
-            return True
-
-    for path in filters.get("unsubscribe_exclude_paths", []):
-        if path and path.lower() in url_lower:
-            return True
-
-    # Pattern matching
-    if UNSUBSCRIBE_URL_PATTERN.search(url_lower):
-        return True
-
-    if UNSUBSCRIBE_TEXT_PATTERN.search(text_lower):
-        return True
-
-    # RFC stricter check
-    if has_rfc_headers:
-        dangerous_words = (
-            "unsub", "unsubscribe", "opt", "remove",
-            "preference", "subscription"
-        )
-        if any(word in url_lower for word in dangerous_words):
-            return True
-
-    return False
-
-
-# ============================================================
-# URL EXTRACTION
-# ============================================================
-
-def extract_and_filter_urls(
-    message_body: str,
-    full_msg,
-    config: dict
-) -> Tuple[List[str], bool]:
-    """
-    Extract links from an email and select EXACTLY ONE safe link.
-
-    Rule:
-      • Check links in email order.
-      • Block unsubscribe/opt-out links.
-      • The first valid HTTP(S) link that is NOT an unsubscribe/opt-out
-        link is selected.
-      • Stop looking after that first safe link.
-      • If no safe link exists, return no URLs.
-
-    Returns: (one_safe_url_or_empty_list, has_match)
-    """
-    blocked_urls: Set[str] = set()
-
-    has_rfc_unsubscribe = check_email_headers_for_unsubscribe(full_msg)
-    url_filters = config.get("url_filters", {})
-
-    email_from = full_msg.get("From", "Unknown")[:100]
-    email_subject = full_msg.get("Subject", "No Subject")[:100]
-
-    try:
-        soup = BeautifulSoup(message_body, "html.parser")
-    except Exception as e:
-        logger.warning(f"Failed to parse HTML: {e}")
-        soup = None
-
-    # ========================================================
-    # PASS 1: HTML LINKS — preserve email/link order
-    # ========================================================
-
-    if soup:
-        for a_tag in soup.find_all("a", href=True):
-            raw_url = a_tag["href"].strip()
-            normalized_url = normalize_url(raw_url)
-
-            if not normalized_url:
+            if UNSUBSCRIBE_PATTERN.search(url_lower):
                 continue
 
-            # Collect visible text, title and image alt text so an
-            # unsubscribe link cannot hide behind an image/button.
-            texts = []
-
-            visible_text = a_tag.get_text(
-                separator=" ", strip=True
-            )
-            if visible_text:
-                texts.append(visible_text)
-
-            title = a_tag.get("title")
-            if title:
-                texts.append(title.strip())
-
-            for img in a_tag.find_all("img"):
-                alt = img.get("alt")
-                if alt:
-                    texts.append(alt.strip())
-
-            comprehensive_text = " | ".join(texts)
-
-            # ------------------------------------------------
-            # NEVER VISIT UNSUBSCRIBE / OPT-OUT LINKS
-            # ------------------------------------------------
-            if is_unsubscribe_link(
-                normalized_url,
-                comprehensive_text,
-                url_filters,
-                has_rfc_unsubscribe
-            ):
-                blocked_urls.add(normalized_url)
-
-                audit_logger.log(AuditEvent(
-                    timestamp=datetime.datetime.now().isoformat(),
-                    event_type="url_blocked",
-                    email_from=email_from,
-                    email_subject=email_subject,
-                    url=normalized_url,
-                    hostname=get_hostname(normalized_url) or "unknown",
-                    status="blocked",
-                    reason="Unsubscribe/opt-out link"
-                ))
-
-                logger.info(
-                    f"BLOCKED unsubscribe/opt-out link: {normalized_url}"
-                )
-                continue
-
-            # ------------------------------------------------
-            # FIRST SAFE LINK FOUND
-            # ------------------------------------------------
-            audit_logger.log(AuditEvent(
-                timestamp=datetime.datetime.now().isoformat(),
-                event_type="url_extracted",
-                email_from=email_from,
-                email_subject=email_subject,
-                url=normalized_url,
-                hostname=get_hostname(normalized_url) or "unknown",
-                status="pending",
-                reason="First valid non-unsubscribe HTML link"
-            ))
-
-            logger.info(
-                f"✓ Selected first safe link: {normalized_url}"
+            found_inclusion_match = any(
+                keyword in url_lower for keyword in URL_INCLUSION_KEYWORDS_LOWER
             )
 
-            return [normalized_url], True
+            if found_inclusion_match:
+                found_any_match = True 
+                if url_count < 2 and url not in urls_to_open:
+                    urls_to_open.add(url)
+                    url_count += 1 
 
-    # ========================================================
-    # PASS 2: PLAIN-TEXT LINKS
-    # ========================================================
+    return sorted(list(urls_to_open)), found_any_match
 
-    plain_url_pattern = re.compile(
-        r"https?://[^\s<>\"']+",
-        re.IGNORECASE
-    )
-
-    for match in plain_url_pattern.finditer(message_body):
-        raw_url = match.group(0).strip().rstrip("'\">.")
-        normalized_url = normalize_url(raw_url)
-
-        if not normalized_url:
-            continue
-
-        if normalized_url in blocked_urls:
-            continue
-
-        # ------------------------------------------------
-        # NEVER VISIT UNSUBSCRIBE / OPT-OUT LINKS
-        # ------------------------------------------------
-        if is_unsubscribe_link(
-            normalized_url,
-            "",
-            url_filters,
-            has_rfc_unsubscribe
-        ):
-            blocked_urls.add(normalized_url)
-
-            audit_logger.log(AuditEvent(
-                timestamp=datetime.datetime.now().isoformat(),
-                event_type="url_blocked",
-                email_from=email_from,
-                email_subject=email_subject,
-                url=normalized_url,
-                hostname=get_hostname(normalized_url) or "unknown",
-                status="blocked",
-                reason="Unsubscribe/opt-out plain-text link"
-            ))
-
-            logger.info(
-                f"BLOCKED unsubscribe/opt-out link: {normalized_url}"
-            )
-            continue
-
-        # ------------------------------------------------
-        # FIRST SAFE LINK FOUND
-        # ------------------------------------------------
-        audit_logger.log(AuditEvent(
-            timestamp=datetime.datetime.now().isoformat(),
-            event_type="url_extracted",
-            email_from=email_from,
-            email_subject=email_subject,
-            url=normalized_url,
-            hostname=get_hostname(normalized_url) or "unknown",
-            status="pending",
-            reason="First valid non-unsubscribe plain-text link"
-        ))
-
-        logger.info(
-            f"✓ Selected first safe link: {normalized_url}"
-        )
-
-        return [normalized_url], True
-
-    logger.info("No safe non-unsubscribe link found in this email")
-    return [], False
-
-
-# ============================================================
-# EMAIL BODY EXTRACTION
-# ============================================================
-
-def get_email_body(full_msg) -> Optional[str]:
-    """Safely extract email body with size limits"""
+def get_email_body(full_msg):
+    """Parses a full email message object to get the text or HTML body."""
     body = ""
-
     for part in full_msg.walk():
-        content_type = part.get_content_type()
-        charset = part.get_content_charset() or 'utf-8'
+        ctype = part.get_content_type()
+        if ctype == 'text/html':
+            try:
+                return part.get_payload(decode=True).decode()
+            except:
+                continue
+        elif ctype == 'text/plain' and not body:
+            try:
+                body = part.get_payload(decode=True).decode()
+            except:
+                pass
+    return body
 
-        try:
-            if content_type == "text/html":
-                payload = part.get_payload(decode=True)
-                if payload:
-                    decoded = payload.decode(charset, errors="replace")
-                    if len(decoded) > MAX_EMAIL_BODY_SIZE:
-                        logger.warning("Email body exceeds size limit")
-                        return decoded[:MAX_EMAIL_BODY_SIZE]
-                    return decoded
-
-            elif content_type == "text/plain" and not body:
-                payload = part.get_payload(decode=True)
-                if payload:
-                    decoded = payload.decode(charset, errors="replace")
-                    if len(decoded) > MAX_EMAIL_BODY_SIZE:
-                        logger.warning("Email body exceeds size limit")
-                        body = decoded[:MAX_EMAIL_BODY_SIZE]
-                    else:
-                        body = decoded
-
-        except Exception as e:
-            logger.debug(f"Error decoding email part: {e}")
-            continue
-
-    return body or None
-
-
-# ============================================================
-# SPAM MANAGEMENT
-# ============================================================
-
-def move_spam_to_inbox(
-    mail,
-    dest_mailbox: str,
-    date_filter: str
-) -> int:
-    """Move unseen recent spam to inbox. Returns count moved."""
-    moved_count = 0
-
+def move_spam_to_inbox(mail, dest_mailbox, date_filter):
+    """
+    Iterates through common spam folder names. If found, moves UNSEEN mails
+    to the destination mailbox (usually INBOX).
+    """
+    print("  -> Checking Spam/Junk folders to move emails...")
+    
     for folder in COMMON_SPAM_FOLDERS:
         try:
+            # Try to select the spam folder
             status, _ = mail.select(folder)
-            if status != "OK":
-                continue
+            if status != 'OK':
+                continue # Folder doesn't exist on this server, try next
 
-            status, data = mail.search(None, f'(UNSEEN SINCE "{date_filter}")')
-            if status != "OK" or not data[0]:
-                continue
+            # Search for unseen emails in this spam folder
+            search_criteria = f'(UNSEEN SINCE "{date_filter}")'
+            status, data = mail.search(None, search_criteria)
+            
+            if status == 'OK' and data[0]:
+                email_ids = data[0].split()
+                count = len(email_ids)
+                print(f"     Found {count} emails in '{folder}'. Moving to '{dest_mailbox}'...")
 
-            email_ids = data[0].split()
-            logger.info(f"Moving {len(email_ids)} emails from {folder}")
-
-            for uid in email_ids:
-                if mail.copy(uid, dest_mailbox)[0] == "OK":
-                    mail.store(uid, "+FLAGS", "\\Deleted")
-                    moved_count += 1
-
-            mail.expunge()
-
+                for uid in email_ids:
+                    # 1. Copy to Inbox
+                    res = mail.copy(uid, dest_mailbox)
+                    if res[0] == 'OK':
+                        # 2. Mark as Deleted in Spam (only if copy succeeded)
+                        mail.store(uid, '+FLAGS', '\\Deleted')
+                
+                # 3. Permanently remove deleted emails from Spam
+                mail.expunge()
+            
         except Exception as e:
-            logger.debug(f"Error processing {folder}: {e}")
-
-    return moved_count
-
-
-# ============================================================
-# SAFE URL VISITOR
-# ============================================================
-
-@contextmanager
-def rate_limited_session(rate_limit: float = DELAY_BETWEEN_REQUESTS):
-    """Context manager for rate-limited requests session"""
-    session = requests.Session()
-    session.headers.update({"User-Agent": USER_AGENT})
-
-    try:
-        yield session
-    finally:
-        session.close()
-
-
-def safely_visit_url(
-    url: str,
-    allowed_hosts: Set[str],
-    url_filters: dict,
-    session: requests.Session,
-    email_from: str,
-    email_subject: str
-) -> bool:
-    """
-    Safely visit URL with multi-layer validation.
-
-    Security checks:
-      1. URL normalization
-      2. Unsubscribe/opt-out detection
-      3. Manual redirect validation (5 max)
-      4. SSL/TLS verification
-      5. Response validation
-    """
-    current_url = normalize_url(url)
-
-    if not current_url:
-        logger.warning(f"BLOCKED: Invalid URL: {url}")
-        audit_logger.log(AuditEvent(
-            timestamp=datetime.datetime.now().isoformat(),
-            event_type="error",
-            email_from=email_from,
-            email_subject=email_subject,
-            url=url,
-            hostname="unknown",
-            status="blocked",
-            reason="URL normalization failed"
-        ))
-        return False
-
-    redirect_chain = []
-
-    for step in range(MAX_REDIRECTS + 1):
-
-        # ====================================================
-        # LAYER 1: Final validation before request
-        # ====================================================
-
-        current_url = normalize_url(current_url)
-        if not current_url:
-            logger.warning("BLOCKED: Malformed URL in redirect chain")
-            return False
-
-        # LAYER 2: Unsubscribe check
-        if is_unsubscribe_link(current_url, "", url_filters, False):
-            logger.warning(f"FIREWALL: Blocked unsubscribe URL: {current_url}")
-            audit_logger.log(AuditEvent(
-                timestamp=datetime.datetime.now().isoformat(),
-                event_type="url_blocked",
-                email_from=email_from,
-                email_subject=email_subject,
-                url=url,
-                hostname=get_hostname(url) or "unknown",
-                status="blocked",
-                reason="Unsubscribe detected in redirect",
-                redirect_chain=",".join(redirect_chain)
-            ))
-            return False
-
-        # LAYER 3: Network request
-        # Hostname allowlisting is intentionally not used: the required policy is
-        # to visit any valid HTTP(S) URL from the email except unsubscribe/opt-out URLs.
-
-        # ====================================================
-        # LAYER 4: Network request
-        # ====================================================
-
-        try:
-            resp = session.get(
-                current_url,
-                timeout=REQUEST_TIMEOUT,
-                allow_redirects=False,
-                verify=SSL_VERIFY,
-                stream=True
-            )
-
-        except requests.exceptions.Timeout:
-            logger.warning(f"TIMEOUT: {current_url}")
-            audit_logger.log(AuditEvent(
-                timestamp=datetime.datetime.now().isoformat(),
-                event_type="error",
-                email_from=email_from,
-                email_subject=email_subject,
-                url=url,
-                hostname=get_hostname(url) or "unknown",
-                status="error",
-                reason="Request timeout",
-                redirect_chain=",".join(redirect_chain)
-            ))
-            return False
-
-        except requests.exceptions.SSLError as e:
-            logger.warning(f"SSL ERROR: {current_url} - {e}")
-            audit_logger.log(AuditEvent(
-                timestamp=datetime.datetime.now().isoformat(),
-                event_type="error",
-                email_from=email_from,
-                email_subject=email_subject,
-                url=url,
-                hostname=get_hostname(url) or "unknown",
-                status="error",
-                reason="SSL certificate verification failed",
-                redirect_chain=",".join(redirect_chain)
-            ))
-            return False
-
-        except Exception as e:
-            logger.warning(f"REQUEST ERROR: {current_url} - {e}")
-            audit_logger.log(AuditEvent(
-                timestamp=datetime.datetime.now().isoformat(),
-                event_type="error",
-                email_from=email_from,
-                email_subject=email_subject,
-                url=url,
-                hostname=get_hostname(url) or "unknown",
-                status="error",
-                reason=f"Request failed: {str(e)[:100]}",
-                redirect_chain=",".join(redirect_chain)
-            ))
-            return False
-
-        # ====================================================
-        # LAYER 5: Redirect handling
-        # ====================================================
-
-        if resp.status_code in (301, 302, 303, 307, 308):
-
-            if step >= MAX_REDIRECTS:
-                logger.warning(f"BLOCKED: Max redirects exceeded for {url}")
-                resp.close()
-                return False
-
-            location = resp.headers.get('Location')
-            resp.close()
-
-            if not location:
-                logger.warning(f"BLOCKED: Redirect without Location header")
-                return False
-
-            next_url = urljoin(current_url, location)
-            next_url = normalize_url(next_url)
-
-            if not next_url:
-                logger.warning(f"BLOCKED: Malformed redirect destination")
-                return False
-
-            redirect_chain.append(next_url)
-
-            # Validate BEFORE requesting
-            if is_unsubscribe_link(next_url, "", url_filters, False):
-                logger.warning(f"BLOCKED REDIRECT: Unsubscribe URL: {next_url}")
-                audit_logger.log(AuditEvent(
-                    timestamp=datetime.datetime.now().isoformat(),
-                    event_type="url_blocked",
-                    email_from=email_from,
-                    email_subject=email_subject,
-                    url=url,
-                    hostname=get_hostname(next_url) or "unknown",
-                    status="blocked",
-                    reason="Unsubscribe in redirect destination",
-                    redirect_chain=",".join(redirect_chain)
-                ))
-                return False
-
-            logger.info(f"Redirect ({step + 1}/{MAX_REDIRECTS}): {next_url}")
-            current_url = next_url
+            # Just continue to the next folder if something fails
             continue
 
-        # ====================================================
-        # LAYER 6: Response validation
-        # ====================================================
+# ------------------- Core Automation Logic -------------------
 
-        content_type = resp.headers.get('content-type', '').lower()
+def automate_email_tasks(account_config, general_config):
+    """Connects to one email account, MOVES SPAM, then filters and processes."""
 
-        # Warn if non-HTML response (but don't block)
-        if 'text/html' not in content_type:
-            logger.warning(
-                f"Non-HTML response: {content_type} from {current_url}"
-            )
+    email_address = account_config['email_address']
+    app_password = account_config['app_password']
+    imap_server = account_config['imap_server']
+    mailbox = account_config['mailbox'] # Usually "INBOX"
+    days = general_config['days_to_check']
 
-        resp.close()
-
-        # ====================================================
-        # SUCCESS
-        # ====================================================
-
-        logger.info(f"✓ VISITED: {current_url} (Status: {resp.status_code})")
-        audit_logger.log(AuditEvent(
-            timestamp=datetime.datetime.now().isoformat(),
-            event_type="url_visited",
-            email_from=email_from,
-            email_subject=email_subject,
-            url=url,
-            hostname=get_hostname(url) or "unknown",
-            status="success",
-            reason="Successfully visited",
-            http_status=resp.status_code,
-            redirect_chain=",".join(redirect_chain) if redirect_chain else None
-        ))
-
-        return True
-
-    logger.warning(f"BLOCKED: Redirect loop for {url}")
-    return False
-
-
-# ============================================================
-# EMAIL PROCESSING
-# ============================================================
-
-def automate_email_tasks(
-    account_config: dict,
-    general_config: dict,
-    full_config: dict
-) -> None:
-    """Process single email account"""
-
-    email_address = account_config["email_address"]
-    app_password = account_config.get("app_password")
-    imap_server = account_config["imap_server"]
-    mailbox = account_config["mailbox"]
-    account_name = account_config.get("account_name", email_address)
-    days = general_config.get("days_to_check", 3)
-
-    if not app_password:
-        logger.error(f"No app_password for {email_address}")
-        return
-
-    logger.info(f"\n{'='*70}")
-    logger.info(f"Processing: {account_name}")
-    logger.info(f"{'='*70}")
-
-    mail = None
+    print(f"\n--- Processing Account: {account_config.get('account_name', email_address)} ---")
 
     try:
-
-        # Calculate date filter
-        date_filter = (
-            datetime.date.today() - datetime.timedelta(days=days)
-        ).strftime("%d-%b-%Y")
-
-        # Connect to IMAP with SSL/TLS
-        logger.info(f"Connecting to {imap_server}...")
+        date_filter = (datetime.date.today() - datetime.timedelta(days=days)).strftime("%d-%b-%Y")
         mail = imaplib.IMAP4_SSL(imap_server)
         mail.login(email_address, app_password)
-        logger.info(f"✓ Connected and authenticated")
 
-        # Move spam
-        moved = move_spam_to_inbox(mail, mailbox, date_filter)
-        if moved > 0:
-            logger.info(f"✓ Moved {moved} spam emails")
+        # --- STEP 1: Move Spam to Inbox ---
+        move_spam_to_inbox(mail, mailbox, date_filter)
 
-        # Select mailbox
-        status, _ = mail.select(mailbox, readonly=False)
-        if status != "OK":
-            logger.error(f"Could not select mailbox: {mailbox}")
-            return
+        # --- STEP 2: Select Inbox and Process ---
+        mail.select(mailbox, readonly=False)
 
-        # Search for unseen emails
-        status, data = mail.search(None, f'(UNSEEN SINCE "{date_filter}")')
+        search_criteria = f'(UNSEEN SINCE "{date_filter}")'
+        status, data = mail.search(None, search_criteria)
 
-        if status != "OK" or not data[0]:
-            logger.info("✓ No unseen emails found")
+        if status != 'OK' or not data[0]:
+            print(f"[{email_address}] No UNSEEN emails found in {mailbox} since {date_filter}.")
+            mail.logout()
             return
 
         email_ids = data[0].split()
-        logger.info(f"✓ Found {len(email_ids)} unseen emails")
+        print(f"[{email_address}] Found {len(email_ids)} UNSEEN emails to process in {mailbox}.")
 
-        mails_to_process = []
+        mails_to_act_on = []
 
-        # ====================================================
-        # PARSE EMAILS
-        # ====================================================
-
+        # Fetch, Filter, and Set Flags
         for uid in email_ids:
-            try:
-                status, msg_data = mail.fetch(uid, "(RFC822)")
-                if status != "OK":
-                    continue
+            status, msg_data_full = mail.fetch(uid, '(RFC822)')
+            full_msg = email.message_from_bytes(msg_data_full[0][1])
 
-                full_msg = email.message_from_bytes(msg_data[0][1])
-                body = get_email_body(full_msg)
+            email_body = get_email_body(full_msg)
+            
+            urls_to_open, found_any_match = extract_and_filter_urls(email_body)
+            
+            if found_any_match:
+                mail.store(uid, '+FLAGS', '\\Seen')
+                mails_to_act_on.append((uid, full_msg, urls_to_open))
+            else:
+                mail.store(uid, '-FLAGS', '\\Seen')
+                print(f"  -> Email from {full_msg.get('From', 'Unknown')}. Marking as UNREAD (No keyword match).")
 
-                if not body:
-                    logger.debug(f"No body in email {uid}")
-                    continue
 
-                urls, has_match = extract_and_filter_urls(
-                    body, full_msg, full_config
-                )
+        # Visit URLs silently in the background
+        if mails_to_act_on:
+            print(f"\n[{email_address}] Visiting URLs in background for {len(mails_to_act_on)} emails.")
+            
+            for uid, full_msg, urls_to_open in mails_to_act_on:
+                print(f"  -> Email from {full_msg.get('From', 'Unknown')}, Subject: {full_msg.get('Subject', 'No Subject')}")
 
-                if has_match:
-                    mail.store(uid, "+FLAGS", "\\Seen")
-                    mails_to_process.append((uid, full_msg, urls))
-                    logger.info(
-                        f"✓ Match: {full_msg.get('From', 'Unknown')} "
-                        f"({len(urls)} URLs)"
-                    )
-                else:
-                    mail.store(uid, "-FLAGS", "\\Seen")
-                    logger.debug(
-                        f"✗ No match: {full_msg.get('From', 'Unknown')}"
-                    )
-
-                time.sleep(DELAY_BETWEEN_EMAILS)
-
-            except Exception as e:
-                logger.error(f"Error processing email {uid}: {e}")
-
-        # ====================================================
-        # VISIT URLS
-        # ====================================================
-
-        if mails_to_process:
-            logger.info(f"\n{'='*70}")
-            logger.info(f"Visiting {len(mails_to_process)} emails...")
-            logger.info(f"{'='*70}")
-
-            allowed_hosts = build_allowed_hosts(full_config)
-            url_filters = full_config.get("url_filters", {})
-
-            with rate_limited_session() as session:
-
-                for uid, full_msg, urls in mails_to_process:
-
-                    email_from = full_msg.get('From', 'Unknown')
-                    email_subject = full_msg.get('Subject', 'No Subject')
-
-                    logger.info(f"\nEmail: {email_from}")
-                    logger.info(f"Subject: {email_subject}")
-
-                    for url in urls:
-
-                        # Final absolute fail-safe
-                        normalized_url = normalize_url(url)
-                        if not normalized_url:
-                            logger.warning(f"FINAL BLOCK: Invalid URL: {url}")
-                            continue
-
-                        if is_unsubscribe_link(
-                            normalized_url, "", url_filters, False
-                        ):
-                            logger.warning(
-                                f"FINAL BLOCK: Unsubscribe URL: {normalized_url}"
-                            )
-                            continue
-
-                        # Do not apply the configured hostname allowlist here.
-                        # The policy is: visit any valid non-unsubscribe HTTP(S) URL.
-
-                        # Safe visit
-                        safely_visit_url(
-                            normalized_url,
-                            allowed_hosts,
-                            url_filters,
-                            session,
-                            email_from,
-                            email_subject
-                        )
-
-                        time.sleep(DELAY_BETWEEN_REQUESTS)
+                for url in urls_to_open:
+                    print(f"     -> Pinging URL: {url}")
+                    try:
+                        # Uses a custom header to look like a normal Mac browser
+                        headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+                        
+                        # Visits the link silently. Timeout prevents hanging on bad links.
+                        response = requests.get(url, headers=headers, timeout=10)
+                        
+                        if response.status_code == 200:
+                            print("        [Success]")
+                        else:
+                            print(f"        [Warning: Status {response.status_code}]")
+                            
+                    except Exception as e:
+                        print(f"        [Failed to visit URL: {e}]")
+                    
+                    time.sleep(1) # Brief pause so we don't spam the servers too fast
 
         else:
-            logger.info("No safe URLs to visit")
+            print(f"[{email_address}] No URLs matched the inclusion keywords.")
 
-    except imaplib.IMAP4.error as e:
-        logger.error(f"IMAP error: {e}")
-        audit_logger.log(AuditEvent(
-            timestamp=datetime.datetime.now().isoformat(),
-            event_type="error",
-            email_from=email_address,
-            email_subject="IMAP Connection",
-            url="",
-            hostname="",
-            status="error",
-            reason=f"IMAP error: {str(e)[:100]}"
-        ))
+        mail.logout()
+        print(f"\n[{email_address}] Task completed successfully.")
 
     except Exception as e:
-        logger.error(f"Error: {e}", exc_info=True)
-        audit_logger.log(AuditEvent(
-            timestamp=datetime.datetime.now().isoformat(),
-            event_type="error",
-            email_from=email_address,
-            email_subject="Processing Error",
-            url="",
-            hostname="",
-            status="error",
-            reason=f"Error: {str(e)[:100]}"
-        ))
-
+        print(f"An error occurred with {email_address}: {e}")
     finally:
-        if mail:
+        if 'mail' in locals() and mail and mail.state != 'LOGOUT':
             try:
                 mail.logout()
-            except Exception:
+            except:
                 pass
 
-        logger.info(f"✓ Finished: {account_name}\n")
-
-
-# ============================================================
-# HEALTH CHECK
-# ============================================================
-
-def health_check(config: dict) -> bool:
-    """Verify configuration is valid"""
-    logger.info("Running health checks...")
-
-    is_valid, errors = ConfigValidator.validate(config)
-
-    if not is_valid:
-        for error in errors:
-            logger.error(f"  ✗ {error}")
-        return False
-
-    allowed_hosts = build_allowed_hosts(config)
-    if not allowed_hosts:
-        logger.warning("  ⚠ No allowed_hosts configured; hostname allowlisting is disabled by policy")
-    else:
-        logger.info(f"  ✓ Configured hosts retained ({len(allowed_hosts)}; not used as a URL gate)")
-
-    logger.info("  ✓ All checks passed")
-    return True
-
-
-# ============================================================
-# MAIN
-# ============================================================
-
-def main():
-    """Main entry point"""
-
-    logger.info("=" * 70)
-    logger.info("EMAIL AUTOMATION SCRIPT v5.0 (PRODUCTION SECURITY)")
-    logger.info("=" * 70)
-
+if __name__ == "__main__":
     try:
+        with open('config.json', 'r') as f:
+            config = json.load(f)
 
-        # Load config
-        config = load_config("config4.json")
-
-        # Health check
-        if not health_check(config):
-            logger.error("Health check failed. Exiting.")
-            return False
-
-        general_config = config.get("general_settings", {"days_to_check": 3})
-
-        full_config = {
-            "allowed_hosts": list(build_allowed_hosts(config)),
-            "url_filters": config.get("url_filters", {})
-        }
-
-        # Process accounts
-        for account in config.get("accounts", []):
-            try:
-                automate_email_tasks(
-                    account,
-                    general_config,
-                    full_config
-                )
-            except Exception as e:
-                logger.error(
-                    f"Failed to process {account.get('email_address')}: {e}"
-                )
-
-        logger.info("=" * 70)
-        logger.info("✓ Script completed successfully")
-        logger.info(f"✓ Audit log: audit_log.csv")
-        logger.info("=" * 70)
-
-        return True
+        general_settings = config['general_settings']
+        for account in config['accounts']:
+            automate_email_tasks(account, general_settings)
 
     except FileNotFoundError:
-        logger.error("config4.json not found")
-        return False
-
+        print("ERROR: config.json not found. Please create the file with your account details.")
+    except KeyError as e:
+        print(f"ERROR: Missing required key in config.json: {e}. Check that all required settings are present.")
     except json.JSONDecodeError as e:
-        logger.error(f"Invalid JSON in config: {e}")
-        return False
-
-    except KeyboardInterrupt:
-        logger.info("Interrupted by user")
-        return False
-
+        print(f"ERROR: Invalid JSON syntax in config.json: {e}. Use an online JSON validator to check your file.")
     except Exception as e:
-        logger.error(f"Fatal error: {e}", exc_info=True)
-        return False
-
-
-if __name__ == "__main__":
-    success = main()
-    exit(0 if success else 1)
+        print(f"A general script error occurred: {e}")
