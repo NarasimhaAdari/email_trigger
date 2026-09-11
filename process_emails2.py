@@ -68,7 +68,7 @@ except ImportError:
 # ============================================================
 
 REQUEST_TIMEOUT = 10
-MAX_URLS_PER_EMAIL = 1
+MAX_URLS_PER_EMAIL = 2
 MAX_REDIRECTS = 5
 DELAY_BETWEEN_REQUESTS = 1.0
 DELAY_BETWEEN_EMAILS = 0.5
