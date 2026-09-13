@@ -5,6 +5,8 @@ import datetime
 import requests
 import json
 import time
+from bs4 import BeautifulSoup
+from urllib.parse import urlparse
 
 # URL Regex: Finds standard URLs (http/https) OR links inside href="..."
 URL_PATTERN = re.compile(
@@ -14,11 +16,28 @@ URL_PATTERN = re.compile(
     re.IGNORECASE
 )
 
-# Unsubscribe Exclusion Pattern: Matches common unsubscribe/opt-out keywords in a URL
-UNSUBSCRIBE_PATTERN = re.compile(
-    r'unsubscribe|optout|remove|manage|mailing_list|no_email|preferences',
-    re.IGNORECASE
-)
+# ---------- UNSUBSCRIBE DETECTION ----------
+UNSUB_TEXT = {"unsubscribe", "unsub", "opt out", "opt-out", "optout",
+              "manage preferences", "manage your preferences",
+              "manage subscriptions", "subscription preferences",
+              "communication preferences", "notification preferences",
+              "email preferences", "update preferences",
+              "update your preferences", "preference center",
+              "preference centre", "remove me", "remove from this list",
+              "remove from list", "stop emails", "stop receiving",
+              "stop receiving these emails", "no longer wish to receive",
+              "don't want to receive", "do not want to receive",
+              "unfollow", "leave this list", "turn off these emails",
+              "click here to unsubscribe"}
+
+UNSUB_URL_KEYWORDS = {"unsubscribe", "optout", "opt-out", "opt_out",
+                      "remove", "unsub", "unfollow", "email-preferences",
+                      "manage-preferences", "manage_preferences",
+                      "mailing/unsubscribe", "lists/unsubscribe",
+                      "preference-center", "preferencecenter",
+                      "preference_center", "subscription-center",
+                      "subscriptioncenter", "communication-preferences",
+                      "email-settings"}
 
 # List of common Spam folder names to check
 COMMON_SPAM_FOLDERS = [
@@ -53,40 +72,113 @@ URL_INCLUSION_KEYWORDS_LOWER = [k.lower() for k in URL_INCLUSION_KEYWORDS]
 
 # ------------------- Helper Functions -------------------
 
+def _looks_like_unsub(a, href_lower):
+    """Multiple independent unsubscribe checks."""
+    text = a.get_text(" ", strip=True).lower()
+    if any(kw in text for kw in UNSUB_TEXT):
+        return True
+
+    for attr in ("aria-label", "title"):
+        val = (a.get(attr) or "").strip().lower()
+        if val and any(kw in val for kw in UNSUB_TEXT):
+            return True
+
+    for img in a.find_all("img"):
+        alt = (img.get("alt") or "").strip().lower()
+        if alt and any(kw in alt for kw in UNSUB_TEXT):
+            return True
+
+    if any(kw in href_lower for kw in UNSUB_URL_KEYWORDS):
+        return True
+
+    parent = a.parent
+    if parent is not None:
+        context = parent.get_text(" ", strip=True).lower()
+        if any(kw in context for kw in UNSUB_TEXT):
+            return True
+
+    return False
+
+
+def _looks_like_resource(url):
+    """Skip technical resources rather than treating them as webpage links."""
+    try:
+        parsed = urlparse(url)
+        hostname = (parsed.hostname or "").lower()
+        path = (parsed.path or "").lower()
+
+        if hostname in {"fonts.googleapis.com", "fonts.gstatic.com"}:
+            return True
+
+        resource_extensions = (
+            ".css", ".js", ".jpg", ".jpeg", ".png", ".gif",
+            ".webp", ".svg", ".ico", ".woff", ".woff2",
+            ".ttf", ".otf", ".mp3", ".mp4"
+        )
+        return path.endswith(resource_extensions)
+    except Exception:
+        return True
+
+
 def extract_and_filter_urls(message_body):
     """
-    Extracts unique URLs, filters them by exclusion/inclusion lists, 
-    and returns a tuple: (list_of_urls_to_open, boolean_if_any_url_matched)
+    Finds the first genuine non-unsubscribe webpage link.
+    Blocks unsubscribe/opt-out links, skips technical resources,
+    and returns exactly one genuine HTTP/HTTPS webpage link.
     """
-    urls_to_open = set()
-    found_any_match = False 
-    matches = URL_PATTERN.findall(message_body)
-    url_count = 0
+    soup = BeautifulSoup(message_body, "html.parser")
 
-    for match in matches:
-        if url_count >= 2:
-            break
+    # Check every HTML link in document order.
+    for a in soup.find_all("a", href=True):
+        url = a.get("href", "").strip()
 
-        url = match[0] if match[0] else match[1]
-        url = url.rstrip('\'">.')
+        if not url:
+            continue
+        if not url.lower().startswith(("http://", "https://")):
+            continue
 
-        if url.startswith('http'):
-            url_lower = url.lower()
+        url = url.rstrip("'\">.")
+        href_lower = url.lower()
 
-            if UNSUBSCRIBE_PATTERN.search(url_lower):
-                continue
+        if _looks_like_unsub(a, href_lower):
+            print(f"     BLOCKED unsubscribe/opt-out link: {url}")
+            continue
 
-            found_inclusion_match = any(
-                keyword in url_lower for keyword in URL_INCLUSION_KEYWORDS_LOWER
-            )
+        if _looks_like_resource(url):
+            print(f"     SKIPPED resource link: {url}")
+            continue
 
-            if found_inclusion_match:
-                found_any_match = True 
-                if url_count < 2 and url not in urls_to_open:
-                    urls_to_open.add(url)
-                    url_count += 1 
+        print(f"     ✓ Selected first safe link: {url}")
+        return [url], True
 
-    return sorted(list(urls_to_open)), found_any_match
+    # Plain-text fallback.
+    plain_text = soup.get_text(" ", strip=True)
+    text_urls = re.findall(
+        r"https?://[^\s<>\"']+",
+        plain_text,
+        re.IGNORECASE
+    )
+
+    for url in text_urls:
+        url = url.rstrip(".,;:!?)]}\"'")
+
+        if not url.lower().startswith(("http://", "https://")):
+            continue
+
+        href_lower = url.lower()
+
+        if any(kw in href_lower for kw in UNSUB_URL_KEYWORDS):
+            print(f"     BLOCKED unsubscribe/opt-out URL: {url}")
+            continue
+
+        if _looks_like_resource(url):
+            print(f"     SKIPPED resource URL: {url}")
+            continue
+
+        print(f"     ✓ Selected first safe text URL: {url}")
+        return [url], True
+
+    return [], False
 
 def get_email_body(full_msg):
     """Parses a full email message object to get the text or HTML body."""
@@ -196,31 +288,75 @@ def automate_email_tasks(account_config, general_config):
                 print(f"  -> Email from {full_msg.get('From', 'Unknown')}. Marking as UNREAD (No keyword match).")
 
 
-        # Visit URLs silently in the background
+        # Visit exactly ONE genuine non-unsubscribe URL per email.
         if mails_to_act_on:
-            print(f"\n[{email_address}] Visiting URLs in background for {len(mails_to_act_on)} emails.")
-            
-            for uid, full_msg, urls_to_open in mails_to_act_on:
-                print(f"  -> Email from {full_msg.get('From', 'Unknown')}, Subject: {full_msg.get('Subject', 'No Subject')}")
+            print(
+                f"\n[{email_address}] Visiting one safe URL per email "
+                f"for {len(mails_to_act_on)} emails."
+            )
 
-                for url in urls_to_open:
-                    print(f"     -> Pinging URL: {url}")
-                    try:
-                        # Uses a custom header to look like a normal Mac browser
-                        headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
-                        
-                        # Visits the link silently. Timeout prevents hanging on bad links.
-                        response = requests.get(url, headers=headers, timeout=10)
-                        
-                        if response.status_code == 200:
-                            print("        [Success]")
+            for uid, full_msg, urls_to_open in mails_to_act_on:
+                print(
+                    f"  -> Email from {full_msg.get('From', 'Unknown')}, "
+                    f"Subject: {full_msg.get('Subject', 'No Subject')}"
+                )
+
+                if not urls_to_open:
+                    continue
+
+                url = urls_to_open[0]
+                print(f"     -> Visiting: {url}")
+
+                try:
+                    headers = {
+                        "User-Agent": (
+                            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                            "AppleWebKit/537.36 (KHTML, like Gecko) "
+                            "Chrome/120.0.0.0 Safari/537.36"
+                        )
+                    }
+
+                    response = requests.get(
+                        url,
+                        headers=headers,
+                        timeout=10,
+                        allow_redirects=False
+                    )
+
+                    if response.status_code in (301, 302, 303, 307, 308):
+                        redirect_url = response.headers.get("Location")
+
+                        if redirect_url:
+                            redirect_lower = redirect_url.lower()
+
+                            if any(
+                                keyword in redirect_lower
+                                for keyword in UNSUB_URL_KEYWORDS
+                            ):
+                                print(
+                                    "        BLOCKED redirect: "
+                                    "unsubscribe/opt-out destination"
+                                )
+                            else:
+                                print(
+                                    f"        [Redirect detected: "
+                                    f"{redirect_url}]"
+                                )
                         else:
-                            print(f"        [Warning: Status {response.status_code}]")
-                            
-                    except Exception as e:
-                        print(f"        [Failed to visit URL: {e}]")
-                    
-                    time.sleep(1) # Brief pause so we don't spam the servers too fast
+                            print("        [Redirect without Location header]")
+
+                    elif response.status_code == 200:
+                        print("        [Success]")
+                    else:
+                        print(
+                            f"        [Warning: Status "
+                            f"{response.status_code}]"
+                        )
+
+                except Exception as e:
+                    print(f"        [Failed to visit URL: {e}]")
+
+                time.sleep(1)
 
         else:
             print(f"[{email_address}] No URLs matched the inclusion keywords.")
